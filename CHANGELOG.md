@@ -48,3 +48,6 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - initialize_app error status code, 400 changed to 500
 
+## [1.7.81] - 2019-05-15
+### Changed
+- Updated migrations to have a specific version tag on them for rails 5
