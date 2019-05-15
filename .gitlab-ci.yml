@@ -1,0 +1,57 @@
+image: ruby:2.6
+stages:
+  - setup
+  - test
+  - deploy
+
+setup:
+  stage: setup
+  allow_failure: true
+  script:
+  - apt-get update -qy
+  - apt-get install -y nodejs
+  - bundle install --path /cache
+
+rubocop-testing:
+  stage: test
+  allow_failure: true
+  script:
+  - gem install rubocop
+  - rubocop --lint
+
+security-testing:
+  stage: test
+  allow_failure: true
+  script:
+  - gem install brakeman
+  - brakeman
+
+rspec-testing:
+  stage: test
+  allow_failure: true
+  script:
+  - gem install rspec
+  - rspec
+
+rubygems-deploy:
+  stage: deploy
+  allow_failure: false
+  script:
+  - echo "deb http://ftp.us.debian.org/debian testing main contrib non-free" >> /etc/apt/sources.list
+  - apt-get update
+  - apt-get install -y git
+  - apt-get clean all
+  - gem install dpl
+  - if [[ "staging"  == $CI_BUILD_REF_SLUG ]];then  export VERSION=`git describe --match "[0-9]*\.[0-9]*\.[0-9]*[a-z]" --abbrev=0 --tags HEAD`; fi
+  - if [[ "master"  == $CI_BUILD_REF_SLUG ]];then export VERSION=`git describe --exclude "[0-9]*\.[0-9]*\.[0-9]*[a-z]" --abbrev=0 --tags HEAD`; fi
+  - echo $VERSION
+  - sed -i "s/0.0.1/$VERSION/" /Connect/connect-gem/lib/zuora_connect/version.rb
+  - git add /Connect/connect-gem/lib/zuora_connect/version.rb
+  - git config --global user.email "connect@zuora.com"
+  - git config --global user.name "Connect Automation"
+  - git commit -m "Automated Version Update $VERSION"
+  - bundle install
+  - dpl --provider=rubygems --api-key=$API_KEY --gem=zuora_connect
+  only:
+    - master
+    - staging

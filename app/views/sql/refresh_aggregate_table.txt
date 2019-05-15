@@ -1,0 +1,85 @@
+CREATE OR REPLACE FUNCTION "shared_extensions".refresh_aggregate_table(aggregate_table_name text, table_name text, filter text, mode text) RETURNS void AS $$
+DECLARE
+  schema RECORD;
+  result RECORD;
+  sql TEXT := '';
+  i INTEGER;
+  created boolean := false;
+  fields_order character varying;
+  index_name varchar;
+  index_string varchar;
+  index_id varchar;
+BEGIN
+  raise notice 'Starting aggregate of % to %', table_name, aggregate_table_name;
+
+
+  EXECUTE format('DROP TABLE IF EXISTS "public".%I', aggregate_table_name);
+  raise notice 'Filter %', filter;
+
+  FOR schema IN EXECUTE
+    format(
+      'SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ ''^[0-9]+$'''
+    )
+  LOOP
+    IF NOT created THEN
+      -- Create the aggregate table if we haven't already
+      EXECUTE format(
+        'CREATE TABLE "public".%I (LIKE %I.%I)',
+        aggregate_table_name,
+        schema.schema_name, table_name
+      );
+      -- Add a special `schema_name` column, which we'll populate with the name of the schema
+      -- each row originated from
+      EXECUTE format(
+        'ALTER TABLE "public".%I ADD COLUMN schema_name text', aggregate_table_name
+      );
+
+      EXECUTE
+        format('CREATE INDEX ON "public".%I (schema_name)', aggregate_table_name);
+      EXECUTE
+        format('CREATE INDEX ON "public".%I (id)', aggregate_table_name);
+
+      -- Move indexes over if indexable
+      IF mode = 'Index' THEN
+        FOR index_string, index_name, index_id IN
+           SELECT pg_get_indexdef(idx.oid)||';', idx.relname, idx.oid
+           from pg_index ind
+           join pg_class idx on idx.oid = ind.indexrelid
+           join pg_class tbl on tbl.oid = ind.indrelid
+           left join pg_namespace ns on ns.oid = tbl.relnamespace where idx.relname != concat(table_name, '_pkey') and tbl.relname = table_name and ns.nspname = 'public'
+        LOOP
+          BEGIN
+            EXECUTE
+              format('DROP INDEX IF EXISTS "public"."%s"', concat(aggregate_table_name, '_', index_id));
+
+            EXECUTE
+              format(replace(replace(replace(index_string, index_name, concat(aggregate_table_name, '_', index_id)), concat(' ', table_name, ' '), concat( ' ', aggregate_table_name, ' ')), concat('public.', table_name), concat( 'public.', aggregate_table_name)));
+
+            RAISE NOTICE 'Creating Indexes %', replace(replace(replace(index_string, index_name, concat(aggregate_table_name, '_', index_id)), concat(' ', table_name, ' '), concat( ' ', aggregate_table_name, ' ')), concat('public.', table_name), concat( 'public.', aggregate_table_name)) ;
+          END;
+        END LOOP;
+      END IF;
+
+      created := true;
+    END IF;
+
+    -- Finally, we'll select everything from this schema's target table, plus the schema's name,
+    -- and insert them into our new aggregate table
+    EXECUTE format(
+      'SELECT string_agg(column_name, '','') from information_schema.columns where table_name = ''%s'' AND table_schema = ''%s''',  
+      table_name, schema.schema_name
+    ) into fields_order;
+    
+    raise notice 'Importing Schema %', schema.schema_name;
+
+    EXECUTE format(        
+      'INSERT INTO "public".%I (schema_name, %s) (SELECT ''%s'' AS schema_name, * FROM %I.%I  %s )',
+      aggregate_table_name,
+      fields_order,
+      schema.schema_name,
+      schema.schema_name, table_name, 
+      filter
+    );
+  END LOOP;
+END
+$$ LANGUAGE plpgsql;

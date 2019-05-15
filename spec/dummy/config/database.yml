@@ -1,0 +1,33 @@
+development:
+  adapter: postgresql
+  encoding: unicode
+  database: connect_gem_development
+  host: localhost
+  pool: 5
+  username: postgres
+  password: root
+  min_messages: notice
+
+test:
+  adapter: postgresql
+  encoding: unicode
+  database: connect_gem_test
+  pool: 5
+  username: postgres
+  password: root
+
+production:
+  adapter: postgresql
+  encoding: unicode
+  database: connect_gem_production
+  pool: 5
+  username: postgres
+  password: root
+
+staging:
+  adapter: postgresql
+  encoding: unicode
+  database: connect_gem_staging
+  pool: 5
+  username: postgres
+  password: root
